@@ -29,6 +29,7 @@
 #include "task.h"
 #include "app_oled.h"
 #include "app_key.h"
+#include "lock.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -258,6 +259,7 @@ int main(void)
 
 	app_oled_start(&hi2c1);                                      // 初始化 OLED，建显示任务
 	app_key_start();                                             // 建键盘扫描任务
+	lock_start();                                                // 建锁体任务
 	vTaskStartScheduler();                                       // 启动调度器，正常不返回
   /* USER CODE END 2 */
 
