@@ -55,7 +55,7 @@ static void vFpTask(void *pvParameters)
 			if (st == AS608_OK)
 			{
 				printf("[FP] match page=%u score=%u\r\n", page, score);
-				lock_open(3000);
+				lock_request(SRC_FP);
 				fail = 0;
 			}
 			else if (st == AS608_NO_MATCH || st == AS608_NOT_FOUND)

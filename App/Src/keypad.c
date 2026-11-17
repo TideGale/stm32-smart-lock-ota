@@ -3,24 +3,28 @@
 #define KEYPAD_ROW_NUM  4
 #define KEYPAD_COL_NUM  4
 
+/* 实测接线（HW-834 排针从下往上 C4..C1，你的接法让行列都是反的）
+ * 代码行 0 = 物理最上面一行 R1 = PA1
+ * 代码列 0 = 物理最左一列 C1 = PB10
+ */
 static GPIO_TypeDef *const s_row_port[KEYPAD_ROW_NUM] =
 {
-	GPIOB, GPIOB, GPIOB, GPIOA
+	GPIOA, GPIOB, GPIOB, GPIOB
 };
 
 static const uint16_t s_row_pins[KEYPAD_ROW_NUM] =
 {
-	GPIO_PIN_0, GPIO_PIN_1, GPIO_PIN_3, GPIO_PIN_1
+	GPIO_PIN_1, GPIO_PIN_3, GPIO_PIN_1, GPIO_PIN_0
 };
 
 static GPIO_TypeDef *const s_col_port[KEYPAD_COL_NUM] =
 {
-	GPIOB, GPIOA, GPIOB, GPIOB
+	GPIOB, GPIOB, GPIOA, GPIOB
 };
 
 static const uint16_t s_col_pins[KEYPAD_COL_NUM] =
 {
-	GPIO_PIN_5, GPIO_PIN_2, GPIO_PIN_9, GPIO_PIN_10
+	GPIO_PIN_10, GPIO_PIN_9, GPIO_PIN_2, GPIO_PIN_5
 };
 
 static const char s_keymap[KEYPAD_ROW_NUM][KEYPAD_COL_NUM] =
@@ -34,6 +38,14 @@ static const char s_keymap[KEYPAD_ROW_NUM][KEYPAD_COL_NUM] =
 static char s_last_raw;          // 上一次原始扫描
 static char s_stable;            // 已确认的键
 static uint8_t s_count;          // 连续相同次数
+static uint8_t s_last_r;         // 最近一次按键的行号
+static uint8_t s_last_c;         // 最近一次按键的列号
+
+void keypad_last_rc(uint8_t *row, uint8_t *col)
+{
+	*row = s_last_r;
+	*col = s_last_c;
+}
 
 void keypad_init(void)
 {
@@ -55,6 +67,8 @@ static char keypad_read_raw(void)
 			if (HAL_GPIO_ReadPin(s_col_port[c], s_col_pins[c]) == GPIO_PIN_RESET)
 			{
 				HAL_GPIO_WritePin(s_row_port[r], s_row_pins[r], GPIO_PIN_SET);
+				s_last_r = r;                                            // 记下实际行列
+				s_last_c = c;
 				return s_keymap[r][c];                                   // 找到键
 			}
 		}
@@ -93,3 +107,4 @@ char keypad_scan(void)
 
 	return 0;
 }
+
