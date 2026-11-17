@@ -25,6 +25,10 @@
 #include "crc32.h"      // crc32_calc 的声明
 #include "ota_meta.h"   // ota_meta_t 类型和那五个函数的声明
 #include "w25q.h"       // w25q_read / w25q_write / w25q_erase_sector 的声明
+
+/* 开发期：用调试器直接烧 App 后，把 A/B 区实际 CRC 重新登记进元数据。
+ * 量产必须改成 0，否则损坏的镜像也会被当成合法镜像。 */
+#define BOOT_ADOPT_ENABLE   1
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -149,6 +153,22 @@ int main(void)
 	uint8_t slot = meta.active_slot;                                 // 元数据说启动哪个槽
 	uint8_t other = (slot == OTA_SLOT_A) ? OTA_SLOT_B : OTA_SLOT_A;  // 另一个槽
 	uint8_t fell_back = 0;                                           // 1 = 选中槽 CRC 失败，已经切到另一个槽
+
+#if BOOT_ADOPT_ENABLE
+	/* 开发期专用：用调试器直接烧 App 后，A 区 CRC 变了但元数据还是旧值，
+	 * 于是会被判成"CRC 失败"回退到 B。这里把两个槽的实际 CRC 重新登记进元数据。
+	 * 量产必须改成 0，否则一个损坏的镜像也会被当成合法的。 */
+	{
+		uint32_t a = crc32_flash(OTA_SLOT_A_ADDR, OTA_FW_SIZE);
+		uint32_t b = crc32_flash(OTA_SLOT_B_ADDR, OTA_FW_SIZE);
+
+		meta.crc_a = a;
+		meta.crc_b = b;
+		ota_meta_save(&meta);
+		printf("[Boot] adopt crc_a=0x%08X crc_b=0x%08X\r\n", a, b);
+	}
+#endif
+
 	uint32_t expect = (slot == OTA_SLOT_A) ? meta.crc_a : meta.crc_b;
 	uint32_t crc = crc32_flash(ota_slot_addr(slot), OTA_FW_SIZE);    // 算选中槽的 CRC
 
