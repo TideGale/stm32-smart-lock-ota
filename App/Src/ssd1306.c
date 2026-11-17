@@ -3,6 +3,26 @@
 
 static I2C_HandleTypeDef *s_hi2c;                       // init 时保存句柄
 static uint8_t s_fb[SSD1306_WIDTH * SSD1306_PAGES];     // 1024 字节显存，8 页
+static uint32_t s_err;                                  // I2C 失败次数，用来判断链路是否挂了
+
+uint32_t ssd1306_err_count(void)
+{
+	return s_err;
+}
+
+void ssd1306_bus_recover(void)
+{
+	/* I2C 卡住时重新初始化，把总线和状态机拉回来 */
+	if (s_hi2c == NULL)
+	{
+		return;
+	}
+
+	HAL_I2C_DeInit(s_hi2c);
+	HAL_Delay(10);
+	HAL_I2C_Init(s_hi2c);
+	s_err = 0;
+}
 
 /* 6x8 ASCII 字模，从空格到 ~，共 95 个 */
 static const uint8_t s_font6x8[95][6] =
@@ -107,7 +127,11 @@ static const uint8_t s_font6x8[95][6] =
 static void ssd1306_write_cmd(uint8_t cmd)              // 控制字节 0x00 表示命令
 {
 	uint8_t buf[2] = {0x00, cmd};
-	HAL_I2C_Master_Transmit(s_hi2c, SSD1306_I2C_ADDR, buf, 2, 100);
+
+	if (HAL_I2C_Master_Transmit(s_hi2c, SSD1306_I2C_ADDR, buf, 2, 100) != HAL_OK)
+	{
+		s_err++;
+	}
 }
 
 static void ssd1306_write_data(const uint8_t *data, uint16_t len)  // 控制字节 0x40 表示数据
@@ -115,7 +139,11 @@ static void ssd1306_write_data(const uint8_t *data, uint16_t len)  // 控制字�
 	uint8_t buf[1 + SSD1306_WIDTH];
 	buf[0] = 0x40;
 	memcpy(&buf[1], data, len);
-	HAL_I2C_Master_Transmit(s_hi2c, SSD1306_I2C_ADDR, buf, len + 1, 100);
+
+	if (HAL_I2C_Master_Transmit(s_hi2c, SSD1306_I2C_ADDR, buf, len + 1, 100) != HAL_OK)
+	{
+		s_err++;
+	}
 }
 
 void ssd1306_init(I2C_HandleTypeDef *hi2c)
@@ -159,6 +187,16 @@ void ssd1306_clear(void)
 	memset(s_fb, 0, sizeof(s_fb));
 }
 
+void ssd1306_fill_page(uint8_t page, uint8_t val)
+{
+	if (page >= SSD1306_PAGES)
+	{
+		return;
+	}
+
+	memset(&s_fb[page * SSD1306_WIDTH], val, SSD1306_WIDTH);
+}
+
 void ssd1306_draw_char(uint8_t x, uint8_t page, char c)
 {
 	if (page >= SSD1306_PAGES || x + 6 > SSD1306_WIDTH)
@@ -184,13 +222,23 @@ void ssd1306_draw_string(uint8_t x, uint8_t page, const char *s)
 	}
 }
 
+void ssd1306_refresh_page(uint8_t page)
+{
+	if (page >= SSD1306_PAGES)
+	{
+		return;
+	}
+
+	ssd1306_write_cmd(0xB0 + page);               // 选页
+	ssd1306_write_cmd(0x00);                      // 列低 4 位
+	ssd1306_write_cmd(0x10);                      // 列高 4 位
+	ssd1306_write_data(&s_fb[page * SSD1306_WIDTH], SSD1306_WIDTH);
+}
+
 void ssd1306_refresh(void)
 {
 	for (uint8_t page = 0; page < SSD1306_PAGES; page++)
 	{
-		ssd1306_write_cmd(0xB0 + page);               // 选页
-		ssd1306_write_cmd(0x00);                      // 列低 4 位
-		ssd1306_write_cmd(0x10);                      // 列高 4 位
-		ssd1306_write_data(&s_fb[page * SSD1306_WIDTH], SSD1306_WIDTH);
+		ssd1306_refresh_page(page);
 	}
 }
