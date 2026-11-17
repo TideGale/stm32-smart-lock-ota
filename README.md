@@ -1,5 +1,8 @@
 > 作品集：[nametanguoqiang.github.io](https://nametanguoqiang.github.io/) — 两个项目的实现、实测数据和没做完的部分都在这一页
 
+> 开发日志：[Docs/开发日志.md](Docs/开发日志.md) — 按天记的推进和卡点
+
+
 # 智能门锁 · OTA 版（从零重建）
 
 > 从零重建的智能门锁项目，**A/B 双分区 OTA 是核心能力**，不是附加功能。
