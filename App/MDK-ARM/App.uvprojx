@@ -700,6 +700,11 @@
               <FileType>1</FileType>
               <FilePath>..\Src\app_fp.c</FilePath>
             </File>
+            <File>
+              <FileName>app_pass.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Src\app_pass.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

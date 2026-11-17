@@ -31,6 +31,7 @@
 #include "app_key.h"
 #include "lock.h"
 #include "app_fp.h"
+#include "app_pass.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -262,6 +263,7 @@ int main(void)
 	app_key_start();                                             // 建键盘扫描任务
 	lock_start();                                                // 建锁体任务
 	app_fp_start();                                              // 建指纹任务
+	app_pass_start();                                            // 建密码任务
 	vTaskStartScheduler();                                       // 启动调度器，正常不返回
   /* USER CODE END 2 */
 

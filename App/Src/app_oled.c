@@ -1,9 +1,22 @@
 #include "app_oled.h"
 #include "ssd1306.h"
 #include "ota_meta.h"
+#include "lock.h"
+#include "app_pass.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include <stdio.h>
+
+static const char *src_name(uint8_t src)
+{
+	switch (src)
+	{
+		case SRC_PASS: return "PASS";
+		case SRC_FP:   return "FP";
+		case SRC_NET:  return "NET";
+		default:       return "-";
+	}
+}
 
 static void vOledTask(void *pvParameters)
 {
@@ -24,8 +37,39 @@ static void vOledTask(void *pvParameters)
 			ssd1306_draw_string(0, 2, "OTA slot: B");
 		}
 
-		snprintf(line, sizeof(line), "tick: %lu", (unsigned long)xTaskGetTickCount());
-		ssd1306_draw_string(0, 4, line);
+		/* 锁体状态：CLOSED / OPEN 3s / 最近一次来源 / 累计次数 */
+		if (lock_get_state() == LOCK_STATE_OPEN)
+		{
+			snprintf(line, sizeof(line), "OPEN %us by %s",
+			         lock_get_remain_s(), src_name(lock_get_last_src()));
+			ssd1306_draw_string(0, 4, line);
+		}
+		else
+		{
+			snprintf(line, sizeof(line), "CLOSED  cnt:%lu",
+			         (unsigned long)lock_get_open_count());
+			ssd1306_draw_string(0, 4, line);
+		}
+
+		/* 密码输入状态：星号回显 / 剩余输入位数 / 锁定倒计时 */
+		if (g_pass_locked)
+		{
+			snprintf(line, sizeof(line), "LOCKED %us left", g_pass_remain_s);
+		}
+		else
+		{
+			uint8_t i;
+			line[0] = 'P';
+			line[1] = ':';
+
+			for (i = 0; i < g_pass_len && i < 6; i++)
+			{
+				line[2 + i] = '*';
+			}
+
+			line[2 + i] = '\0';
+		}
+		ssd1306_draw_string(0, 6, line);
 
 		ssd1306_refresh();
 		vTaskDelay(pdMS_TO_TICKS(500));
