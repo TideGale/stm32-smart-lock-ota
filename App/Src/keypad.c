@@ -5,7 +5,7 @@
 
 /* 实测接线（HW-834 排针从下往上 C4..C1，你的接法让行列都是反的）
  * 代码行 0 = 物理最上面一行 R1 = PA1
- * 代码列 0 = 物理最左一列 C1 = PB10
+ * 代码列 0 = 物理最左一列 = PB4（原 PB10，让给 USART3 给 ESP8266 用）
  */
 static GPIO_TypeDef *const s_row_port[KEYPAD_ROW_NUM] =
 {
@@ -24,7 +24,7 @@ static GPIO_TypeDef *const s_col_port[KEYPAD_COL_NUM] =
 
 static const uint16_t s_col_pins[KEYPAD_COL_NUM] =
 {
-	GPIO_PIN_10, GPIO_PIN_9, GPIO_PIN_2, GPIO_PIN_5
+	GPIO_PIN_4, GPIO_PIN_9, GPIO_PIN_2, GPIO_PIN_5
 };
 
 static const char s_keymap[KEYPAD_ROW_NUM][KEYPAD_COL_NUM] =
