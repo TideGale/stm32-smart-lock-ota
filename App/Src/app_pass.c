@@ -8,6 +8,7 @@
 #include <string.h>
 
 volatile uint8_t  g_pass_len;
+volatile char     g_pass_disp[8];
 volatile uint8_t  g_pass_locked;
 volatile uint16_t g_pass_remain_s;
 
@@ -22,6 +23,7 @@ static void pass_clear(void)
 	s_len = 0;
 	s_buf[0] = '\0';
 	g_pass_len = 0;
+	g_pass_disp[0] = '\0';
 }
 
 static void pass_lock(uint32_t ms)
@@ -76,7 +78,10 @@ static void pass_handle_key(char key)
 		s_buf[s_len++] = key;
 		s_buf[s_len] = '\0';
 		g_pass_len = s_len;
-		printf("[PASS] key=%c  len=%u/%u\r\n", key, s_len, (unsigned)PASS_BUF_MAX);
+		strncpy((char *)g_pass_disp, s_buf, PASS_BUF_MAX);   // 同步一份给 OLED
+		g_pass_disp[PASS_BUF_MAX] = '\0';
+		printf("[PASS] key=%c  len=%u/%u  disp=%s\r\n",
+		       key, s_len, (unsigned)PASS_BUF_MAX, (const char *)g_pass_disp);
 		return;
 	}
 
@@ -87,6 +92,8 @@ static void pass_handle_key(char key)
 			s_len--;
 			s_buf[s_len] = '\0';
 			g_pass_len = s_len;
+			strncpy((char *)g_pass_disp, s_buf, PASS_BUF_MAX);
+			g_pass_disp[PASS_BUF_MAX] = '\0';
 		}
 
 		printf("[PASS] back  len=%u\r\n", s_len);

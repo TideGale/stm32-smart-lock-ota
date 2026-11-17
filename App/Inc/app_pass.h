@@ -13,6 +13,7 @@
 
 /* 给 OLED 读的状态 */
 extern volatile uint8_t  g_pass_len;        // 已输入位数
+extern volatile char     g_pass_disp[8];    // 已输入的数字（明文，方便调试查看）
 extern volatile uint8_t  g_pass_locked;     // 是否处于锁定期
 extern volatile uint16_t g_pass_remain_s;   // 锁定剩余秒数
 
