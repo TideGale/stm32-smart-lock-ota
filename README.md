@@ -106,38 +106,39 @@
 |---|---|
 | 目录搭建 | ✅ 2026-11-04 |
 | 阶段一 基础（CubeMX、时钟、串口） | ✅ App 点灯，Bootloader 串口输出正常 |
-| 阶段二 外设 | 🔄 OLED、4×4 键盘、AS608 指纹已完成；ESP8266、W25Q128 日志未开始 |
-| 阶段三 RTOS | 🔄 FreeRTOS 已移植，指纹 / 键盘 / 锁体 / 显示四个任务在跑；队列和互斥量待加 |
-| 阶段四 OTA | 🔄 Bootloader 的跳转、CRC 校验、元数据读写已完成；App 侧升级流程未开始 |
+| 阶段二 外设 | ✅ OLED、4×4 键盘、AS608 指纹、ESP8266 远程开锁已完成；W25Q128 日志未开始 |
+| 阶段三 RTOS | ✅ 五个任务在跑（显示 / 键盘 / 锁体 / 指纹 / 网络），键盘用队列、锁体用互斥量 |
+| 阶段四 OTA | 🔄 Bootloader 侧全部完成；App 侧升级流程代码已写完，A→B→A 闭环待实测 |
 
 ---
 
-## 功能分支
+## 步骤与验证标签
 
-每个功能一步一个分支，切过去能编译运行。
+功能开发直接在 `main` 上按步骤提交，每完成一步打一个 `test-*` 标签。切到标签能编译运行，复现当时的串口输出。
 
-| 分支 | 内容 |
-|---|---|
-| `feat/11-oled` | SSD1306 OLED 显示任务（I2C1，影子帧缓冲，分页刷新） |
-| `feat/12-keypad` | 4×4 矩阵键盘（行扫描 + 30ms 消抖，只报按下沿） |
-| `feat/13-lock` | 继电器电磁锁驱动（PC0 高电平触发，开锁 3 秒自动关） |
-| `feat/14-fingerprint` | AS608 指纹（UART4 57600，1:N 搜索，匹配成功联动开锁） |
-
----
-
-## 测试记录
-
-每个测试都在独立分支上，切过去能编译运行，复现当时的串口输出。`main` 上只留功能代码，不含测试代码。
-
-| 分支 | 测什么 | 结论 |
+| 标签 | 验什么 | 结论 |
 |---|---|---|
-| `test/crc-vector` | 用标准向量 `123456789` 算 CRC32 | 输出 `0xCBF43926`，与 CRC-32/ISO-HDLC 标准值一致 |
-| `test/meta-magic` | 把 magic 改成 `0x12345678` 再写回 Flash | 上电打印 `meta invalid`，第一道检查生效 |
-| `test/meta-crc` | magic 正确，但改 `boot_count` 不重算 CRC | 上电打印 `meta invalid`，第二道检查生效 |
-| `test/flash-selftest` | 擦写 8KB 到 B 分区并逐字比对 | 2048 个字 0 错误，A 分区 CRC 前后一致 |
-| `test/w25q-id` | 通过 SPI2 读 W25Q128 的 JEDEC ID | 返回 `0xEF4018`（Winbond / SPI Flash / 16MB），链路正常 |
-| `test/w25q-rw` | 擦一个 4KB 扇区、写 256 字节、读回逐字节比对 | `bad 0`，擦写读链路正常 |
-| `test/ota-prepare` | 把 A 区固件 16KB 复制到 W25Q128 暂存区 | `bad 0`，升级包准备就绪 |
+| `test-clock-tick` | `HAL_GetTick()` 是否真按毫秒走 | 1 秒计到 1000 附近，时钟基准正确 |
+| `test-freertos-blink` | FreeRTOS 起来后两个任务能否独立点灯 | 两灯不同频闪烁，调度正常 |
+| `test-oled` | SSD1306 5 行显示 + I2C 出错恢复 | 长时间运行不冻结，`i2c err` 不再增长 |
+| `test-keypad` | 4×4 键盘 16 个键位 | 逐个按下，`[KEY] 字符 r= c=` 行列号全对 |
+| `test-lock` | 继电器锁体状态机 | 请求后开 3 秒自动回锁，电平与日志一致 |
+| `test-fp-search` | AS608 57600 波特率 1:N 搜索 | 匹配成功开锁，`score<100` 拒绝 |
+| `test-pass-lock` | 密码 `1234` + 连错 3 次锁 5 分钟 | 倒计时实测 298s，锁定期正确密码也拒绝 |
+| `test-mqtt` | ESP8266 连热点 + 手写 MQTT 3.1.1 | 手机发 `open` 开锁，`lock/state` 回执可见 |
+| `test-crc-vector` | 用标准向量 `123456789` 算 CRC32 | 输出 `0xCBF43926`，与 CRC-32/ISO-HDLC 标准值一致 |
+| `test-meta-magic` | 把 magic 改成 `0x12345678` 再写回 Flash | 上电打印 `meta invalid`，第一道检查生效 |
+| `test-meta-crc` | magic 正确但改 `boot_count` 不重算 CRC | 上电打印 `meta invalid`，第二道检查生效 |
+| `test-flash-selftest` | 擦写 8KB 到 B 分区并逐字比对 | 2048 个字 0 错误，A 分区 CRC 前后一致 |
+| `test-w25q-id` | 通过 SPI2 读 W25Q128 的 JEDEC ID | 返回 `0xEF4018`，链路正常 |
+| `test-w25q-rw` | 擦一个 4KB 扇区、写 256 字节、读回比对 | `bad 0`，擦写读链路正常 |
+| `test-ota-prepare` | 把 A 区固件复制到 W25Q128 暂存区 | `bad 0`，升级包准备就绪 |
+| `test-ota-corrupt` | 故意改坏升级包的 CRC | Bootloader 拒绝启动坏槽并切回 |
+
+```bash
+git tag                      # 看全部标签
+git checkout test-mqtt       # 切到某一步的验证状态
+```
 
 ---
 
