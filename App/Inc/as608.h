@@ -15,4 +15,6 @@ uint8_t as608_search(uint16_t *page, uint16_t *score);
 uint8_t as608_enroll(uint16_t page);
 uint8_t as608_delete(uint16_t page, uint16_t count);
 
+uint8_t as608_led_probe(void);      // 2.0：探测模块支不支持软件控灯，返回 0=至少有一条被接受
+
 #endif

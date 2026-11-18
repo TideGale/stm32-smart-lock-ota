@@ -477,3 +477,45 @@ uint8_t as608_delete(uint16_t page, uint16_t count)
 
 	return as608_cmd(0x0C, d, 4, 1000);
 }
+
+/* 2.0 用：探一探模块支不支持软件控灯。AS608 手册里 LED 相关的指令有好几条，
+ * 不同固件给的应答也不一样，与其猜不如直接发一遍看 confirm 码和灯的反应。
+ * 返回值只是"有没有被接受"，到底哪条能关灯要靠人盯着看。 */
+uint8_t as608_led_probe(void)
+{
+	static const struct
+	{
+		uint8_t  cmd;                               // 指令码
+		uint8_t  n;                                 // 参数个数
+		uint8_t  p[5];                              // 参数
+		const char *note;                           // 说明，打在串口上方便对照
+	} tb[] =
+	{
+		{ 0x3C, 4, { 0x05, 0x00, 0x00, 0x00, 0 }, "PS_Led  fun=5 (off?)"      },
+		{ 0x3C, 4, { 0x04, 0x00, 0x00, 0x00, 0 }, "PS_Led  fun=4 (off?)"      },
+		{ 0x3C, 4, { 0x01, 0x00, 0x02, 0x00, 0 }, "PS_Led  fun=1 blue"        },
+		{ 0x3D, 5, { 0x05, 0x00, 0x00, 0x00, 0 }, "PS_AuraLed fun=5 (off?)"   },
+		{ 0x3D, 5, { 0x01, 0x02, 0x02, 0x00, 0 }, "PS_AuraLed fun=1 blue"     },
+		{ 0x33, 0, { 0 },                          "PS_Sleep"                  },
+	};
+
+	uint8_t i, st, ok = 0;
+
+	printf("[LED] probe start, 看模块上的蓝光\r\n");
+
+	for (i = 0; i < (uint8_t)(sizeof(tb) / sizeof(tb[0])); i++)
+	{
+		st = as608_cmd(tb[i].cmd, tb[i].p, tb[i].n, 1000);
+		printf("[LED] %u %-28s confirm=0x%02X\r\n", i, tb[i].note, st);
+
+		if (st == 0x00)
+		{
+			ok = 1;
+		}
+
+		HAL_Delay(900);                             // 留时间让人看灯的变化
+	}
+
+	printf("[LED] probe end, 哪一号让灯灭了告诉我\r\n");
+	return ok ? 0 : 1;
+}
