@@ -93,7 +93,7 @@
 /*!< Uncomment the following line if you need to relocate the vector table
      anywhere in Flash or Sram, else the vector table is kept at the automatic
      remap of boot address selected */
- #define USER_VECT_TAB_ADDRESS 
+/* #define USER_VECT_TAB_ADDRESS */   /* 关掉：向量表基址由 Bootloader 按 A/B 槽设定，这里不能写死 A */
 
 #if defined(USER_VECT_TAB_ADDRESS)
 /*!< Uncomment the following line if you need to relocate your vector Table

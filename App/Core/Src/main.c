@@ -103,6 +103,12 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
 
+  /* 向量表基址正常由 Bootloader 按要启动的槽设好；只有没指向 A/B 槽时才兜底回 A */
+  if (SCB->VTOR != OTA_SLOT_A_ADDR && SCB->VTOR != OTA_SLOT_B_ADDR)
+  {
+      SCB->VTOR = OTA_SLOT_A_ADDR;
+  }
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -277,7 +283,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;      // 18MHz 降到 9MHz，飞线太长时更稳
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
