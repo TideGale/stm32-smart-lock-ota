@@ -10,7 +10,7 @@
 
 /* 2.0 用：开一次就挨个试模块的控灯指令，看哪条能让蓝光灭掉。
  * 定下来之后这段删掉，改成正常逻辑 */
-#define AS608_LED_PROBE        1
+#define AS608_LED_PROBE        0
 
 volatile uint8_t  g_fp_state;
 volatile uint16_t g_fp_score;

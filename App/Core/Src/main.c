@@ -145,7 +145,11 @@ int main(void)
 	ota_meta_t meta;                                                // 当前元数据
 
 	ota_meta_load(&meta);                                           // 从 Flash 读元数据
-	printf("[App] boot: vtor=0x%08X slot=%d trial=%d cnt=%d\r\n",   // 从哪个槽起来的
+		printf("[App] RUN slot=%c  addr=0x%08X  size=%u KB\r\n",          // 一眼看出跑在哪个槽
+	       (SCB->VTOR == OTA_SLOT_A_ADDR) ? 'A' : 'B',
+	       (unsigned)SCB->VTOR,
+	       (unsigned)(OTA_FW_SIZE / 1024));
+printf("[App] boot: vtor=0x%08X slot=%d trial=%d cnt=%d\r\n",   // 从哪个槽起来的
 		SCB->VTOR, meta.active_slot, meta.trial, meta.boot_count);  // 槽号、试启动、失败次数
 
 	// ===== 试启动确认：能跑到这里，说明固件活到了 main =====
