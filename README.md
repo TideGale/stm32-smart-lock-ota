@@ -11,24 +11,6 @@
 
 ---
 
-## 构建环境
-
-版本从工程文件里读的，不是凭记忆写的（`App.uvprojx`、`App.ioc`、`App/FreeRTOS/Source/include/FreeRTOS.h`）。
-
-| 项 | 内容 |
-|---|---|
-| MCU | STM32F103RCT6，Cortex-M3，256KB Flash / 48KB RAM |
-| IDE | Keil MDK，编译器 ARMCC V5.06 update 6 (build 750)，未启用 ARMCLANG（AC6） |
-| 器件支持包 | `Keil.STM32F1xx_DFP` 2.2.0，CMSIS 4.5.0 |
-| 工程生成 | STM32CubeMX 6.16.0（MxDb DB.6.0.160） |
-| 固件包 | STM32Cube FW_F1 V1.8.7（HAL 驱动来自这里） |
-| RTOS | FreeRTOS Kernel V10.3.1，端口 `portable/RVDS/ARM_CM3`，内存管理 `heap_4.c` |
-| 外部存储 | W25Q128（SPI2），JEDEC ID `0xEF4018` |
-| 烧录 | ST-Link。Bootloader 烧 `0x08000000`，App 烧 `0x08004000` |
-
-两个工程的编译器、器件包、CubeMX 版本一致，只有链接地址和源文件列表不同。
-
-**烧录顺序**：先烧 App，再烧 Bootloader。反过来会因为 A 区 CRC 和元数据不一致被判失败、回退到 B，看起来像"新烧的代码没生效"。原因和排查过程在 [调试记录 第 11 步](Docs/调试记录.md)。
 
 ## 目录结构
 
@@ -193,6 +175,25 @@ git checkout test-mqtt       # 切到某一步的验证状态
 ```
 
 ---
+
+## 构建环境
+
+版本从工程文件里读的，不是凭记忆写的（`App.uvprojx`、`App.ioc`、`App/FreeRTOS/Source/include/FreeRTOS.h`）。
+
+| 项 | 内容 |
+|---|---|
+| MCU | STM32F103RCT6，Cortex-M3，256KB Flash / 48KB RAM |
+| IDE | Keil MDK，编译器 ARMCC V5.06 update 6 (build 750)，未启用 ARMCLANG（AC6） |
+| 器件支持包 | `Keil.STM32F1xx_DFP` 2.2.0，CMSIS 4.5.0 |
+| 工程生成 | STM32CubeMX 6.16.0（MxDb DB.6.0.160） |
+| 固件包 | STM32Cube FW_F1 V1.8.7（HAL 驱动来自这里） |
+| RTOS | FreeRTOS Kernel V10.3.1，端口 `portable/RVDS/ARM_CM3`，内存管理 `heap_4.c` |
+| 外部存储 | W25Q128（SPI2），JEDEC ID `0xEF4018` |
+| 烧录 | ST-Link。Bootloader 烧 `0x08000000`，App 烧 `0x08004000` |
+
+两个工程的编译器、器件包、CubeMX 版本一致，只有链接地址和源文件列表不同。
+
+**烧录顺序**：先烧 App，再烧 Bootloader。反过来会因为 A 区 CRC 和元数据不一致被判失败、回退到 B，看起来像"新烧的代码没生效"。原因和排查过程在 [调试记录 第 11 步](Docs/调试记录.md)。
 
 ## 设计说明
 
