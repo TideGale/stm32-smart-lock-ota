@@ -1,4 +1,5 @@
 #include "esp8266.h"
+#include "ota.h"
 #include "lock.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -44,6 +45,13 @@ void USART3_IRQHandler(void)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
+	if (huart->Instance == USART1)                  /* 调试串口：OTA 收升级包用 */
+	{
+		ota_uart_rx_isr(g_ota_rx_byte);
+		HAL_UART_Receive_IT(huart, &g_ota_rx_byte, 1);
+		return;
+	}
+
 	if (huart->Instance != USART3)
 	{
 		return;

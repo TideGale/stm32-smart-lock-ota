@@ -12,6 +12,38 @@
 
 static uint8_t s_buf[OTA_CHUNK];
 
+extern UART_HandleTypeDef huart1;                          /* 调试串口，收升级包用 */
+
+/* 串口收字节的环形缓冲：接收中断往里塞，任务从里面取。直接用 DR 轮询会在
+ * 写 W25Q 的几毫秒里丢字节，115200 下一毫秒就是十几个 */
+#define OTA_RX_SIZE   512
+static uint8_t s_rx[OTA_RX_SIZE];
+static volatile uint16_t s_rx_head, s_rx_tail;
+uint8_t g_ota_rx_byte;                                     /* HAL 接收中断的落点 */
+
+void ota_uart_rx_isr(uint8_t b)                            /* 由 HAL 回调调用 */
+{
+	uint16_t next = (uint16_t)((s_rx_head + 1) % OTA_RX_SIZE);
+
+	if (next != s_rx_tail)                                 /* 满了丢最新的，保留旧数据 */
+	{
+		s_rx[s_rx_head] = b;
+		s_rx_head = next;
+	}
+}
+
+static int ota_getc(uint8_t *b)                            /* 取一个字节，没有就返回 0 */
+{
+	if (s_rx_tail == s_rx_head)
+	{
+		return 0;
+	}
+
+	*b = s_rx[s_rx_tail];
+	s_rx_tail = (uint16_t)((s_rx_tail + 1) % OTA_RX_SIZE);
+	return 1;
+}
+
 /* 当前运行的槽号 */
 static uint8_t ota_running_slot(void)
 {
@@ -140,37 +172,32 @@ int ota_apply(void)
 
 	HAL_FLASH_Lock();
 
-	/* 3. CRC 校验：新写入的槽和暂存区必须一致，否则不切槽 */
+	/* 3. 逐块比对：写进槽里的内容必须和 W25Q 暂存区一模一样，差一个字节都不切槽 */
+	for (off = 0; off < OTA_FW_SIZE; off += OTA_CHUNK)
 	{
-		uint32_t src_addr  = (SCB->VTOR == OTA_SLOT_A_ADDR) ? OTA_SLOT_A_ADDR : OTA_SLOT_B_ADDR;
-		uint32_t stage_crc = crc32_calc((const uint8_t *)src_addr, OTA_FW_SIZE);
+		uint16_t k;
 
-		crc = crc32_flash(addr, OTA_FW_SIZE);
-		printf("[OTA] crc slot=0x%08X stage=0x%08X\r\n", crc, stage_crc);
+		w25q_read_blk(OTA_STAGE_ADDR + off, s_buf, OTA_CHUNK);
 
-		if (crc != stage_crc)
+		if (memcmp(s_buf, (const void *)(addr + off), OTA_CHUNK) != 0)
 		{
-			uint32_t k, bad = 0;
-
-			for (k = 0; k < OTA_FW_SIZE; k++)                    /* 找出第一个不一样的字节，判断是零星坏还是一片坏 */
+			for (k = 0; k < OTA_CHUNK; k++)
 			{
-				if (*(const uint8_t *)(addr + k) != *(const uint8_t *)(src_addr + k))
+				if (*(const uint8_t *)(addr + off + k) != s_buf[k])
 				{
-					if (bad < 8)                                 /* 最多打 8 个，够判断了 */
-					{
-						printf("[OTA] diff @%lu new=0x%02X old=0x%02X\r\n",
-						       (unsigned long)k,
-						       *(const uint8_t *)(addr + k),
-						       *(const uint8_t *)(src_addr + k));
-						bad++;
-					}
+					break;
 				}
 			}
 
-			printf("[OTA] crc mismatch, %lu bytes differ, abort\r\n", (unsigned long)bad);
+			printf("[OTA] verify fail @%lu flash=0x%02X w25q=0x%02X\r\n",
+			       (unsigned long)(off + k),
+			       *(const uint8_t *)(addr + off + k), s_buf[k]);
 			return -4;
 		}
 	}
+
+	crc = crc32_flash(addr, OTA_FW_SIZE);                  /* 整槽 CRC，Bootloader 校验的就是这个 */
+	printf("[OTA] verify ok, crc=0x%08X\r\n", crc);
 
 	/* 4. 更新元数据：切槽 + 试启动 + 计数清零 */
 	if (target == OTA_SLOT_A)
@@ -193,6 +220,68 @@ int ota_apply(void)
 	return 0;
 }
 
+/* 串口收原始 bin，直接写进 W25Q 暂存区；静默 2 秒算收完。PC 端用串口助手的
+ * "发送文件"功能把 App.bin / AppB.bin 发过来就行，不需要协议和校验和 */
+static int ota_recv_package(void)
+{
+	uint8_t buf[OTA_CHUNK];
+	uint16_t n = 0;
+	uint32_t off = 0;
+	uint32_t total = 0;
+	uint32_t last;
+	uint8_t ch;
+
+	printf("[OTA] erase stage area...\r\n");
+
+	for (off = 0; off < OTA_FW_SIZE; off += OTA_SECTOR_SIZE)
+	{
+		w25q_erase_sector(OTA_STAGE_ADDR + off);
+	}
+
+	printf("[OTA] ready, send .bin now (idle 2s ends)\r\n");
+
+	off   = 0;
+	last  = HAL_GetTick();
+
+	for (;;)
+	{
+		if (ota_getc(&ch))
+		{
+			buf[n++] = ch;
+			total++;
+			last = HAL_GetTick();
+
+			if (n == OTA_CHUNK)                            /* 攒够一页就落盘 */
+			{
+				w25q_write_blk(OTA_STAGE_ADDR + off, buf, OTA_CHUNK);
+				off += OTA_CHUNK;
+				n = 0;
+
+				if (off >= OTA_FW_SIZE)                    /* 超过一个槽，多的不要了 */
+				{
+					break;
+				}
+			}
+		}
+		else if ((total > 0) && ((HAL_GetTick() - last) > 2000))
+		{
+			break;                                         /* 静默 2 秒，认为传完了 */
+		}
+	}
+
+	if (n > 0)                                             /* 尾巴不满一页，用 0xFF 补齐再写 */
+	{
+		memset(&buf[n], 0xFF, OTA_CHUNK - n);
+		w25q_write_blk(OTA_STAGE_ADDR + off, buf, OTA_CHUNK);
+		off += OTA_CHUNK;
+	}
+
+	printf("[OTA] recv %lu bytes, %lu KB into W25Q\r\n",
+	       (unsigned long)total, (unsigned long)((off + 1023) / 1024));
+
+	return (int)total;
+}
+
 static void vOtaTask(void *pvParameters)
 {
 	(void)pvParameters;
@@ -200,11 +289,9 @@ static void vOtaTask(void *pvParameters)
 
 	for (;;)
 	{
-		/* 轮询调试串口 USART1 的接收，不用中断，简单可靠 */
-		if (USART1->SR & USART_SR_RXNE)
+		/* 从串口环形缓冲里取字符，接收本身由中断完成 */
+		if (ota_getc(&ch))
 		{
-			ch = (uint8_t)(USART1->DR & 0xFF);
-
 			if (ch == 'P' || ch == 'p')
 			{
 				ota_prepare_from_running();
@@ -255,6 +342,10 @@ static void vOtaTask(void *pvParameters)
 				vTaskDelay(pdMS_TO_TICKS(200));
 				NVIC_SystemReset();
 			}
+			else if (ch == 'D' || ch == 'd')
+			{
+				ota_recv_package();
+			}
 			else if (ch == 'A' || ch == 'a')
 			{
 				if (ota_apply() == 0)
@@ -271,11 +362,13 @@ static void vOtaTask(void *pvParameters)
 
 void ota_task_start(void)
 {
+	HAL_UART_Receive_IT(&huart1, &g_ota_rx_byte, 1);        /* 打开调试串口的接收中断 */
+
 	if (xTaskCreate(vOtaTask, "OTA", 512, NULL, 2, NULL) != pdPASS)
 	{
 		printf("[OTA] task create fail, heap not enough\r\n");
 		return;
 	}
 
-	printf("[OTA] cmd: 'P' prepare, 'A' apply+reboot, 'R' slotA, 'B' slotB\r\n");
+	printf("[OTA] cmd: 'P' prepare, 'D' recv bin, 'A' apply+reboot, 'R' slotA, 'B' slotB\r\n");
 }

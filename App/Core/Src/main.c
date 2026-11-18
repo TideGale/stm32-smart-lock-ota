@@ -137,6 +137,7 @@ int main(void)
 
 	printf("[App] W25Q ID = 0x%06X\r\n", w25q_read_id());   // 读 JEDEC ID，验证 App 侧 SPI 通不通
 	printf("[App] hello\r\n");                              // 确认 printf 本身能用
+	printf("[App] build " __DATE__ " " __TIME__ "\r\n");     // 编译时刻，用来确认跑的是哪一版固件
   
 	printf("[App] main=0x%08X VTOR=0x%08X\r\n",                     // 本镜像的链接地址
   (uint32_t)&main, SCB->VTOR);                                // 和向量表基址

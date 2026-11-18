@@ -13,6 +13,10 @@ int  ota_prepare_from_running(void);
 /* 暂存区 -> 非活动槽，CRC 校验通过后切槽、置试启动，返回 0 成功（不自动复位） */
 int  ota_apply(void);
 
+/* 串口接收中断拿到的字节，交给 app_ota.c 的环形缓冲 */
+void ota_uart_rx_isr(uint8_t b);
+extern uint8_t g_ota_rx_byte;
+
 /* 串口发 'P' 准备升级包，发 'A' 执行升级并复位；另建一个任务收这两个键 */
 void ota_task_start(void);
 
