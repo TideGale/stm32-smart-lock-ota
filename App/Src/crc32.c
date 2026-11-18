@@ -27,3 +27,23 @@ uint32_t crc32_flash(uint32_t addr, uint32_t len)           // 算 Flash 里 add
 	// STM32 的 Flash 是内存映射的，0x08000000 开始的地址可以直接当指针读
 	return crc32_calc((const uint8_t *)addr, len);          // 把地址强转成指针，交给 crc32_calc
 }
+
+uint32_t crc32_update(uint32_t crc, const uint8_t *data, uint32_t len)   // 分段累计，初值传 0xFFFFFFFF
+{
+	uint32_t i;                                             // 字节下标
+	int b;                                                  // 位下标
+
+	for (i = 0; i < len; i++)
+	{
+		crc ^= data[i];
+		for (b = 0; b < 8; b++)
+		{
+			if (crc & 1U)
+				crc = (crc >> 1) ^ CRC32_POLY;
+			else
+				crc >>= 1;
+		}
+	}
+
+	return crc;                                             // 结果还没取反，调用方最后再取反
+}

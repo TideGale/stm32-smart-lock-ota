@@ -16,10 +16,16 @@ extern UART_HandleTypeDef huart1;                          /* 调试串口，收
 
 /* 串口收字节的环形缓冲：接收中断往里塞，任务从里面取。直接用 DR 轮询会在
  * 写 W25Q 的几毫秒里丢字节，115200 下一毫秒就是十几个 */
-#define OTA_RX_SIZE   512
+#define OTA_RX_SIZE   2048
 static uint8_t s_rx[OTA_RX_SIZE];
 static volatile uint16_t s_rx_head, s_rx_tail;
+static volatile uint32_t s_rx_drop;                        /* 缓冲满了被丢掉的字节数 */
 uint8_t g_ota_rx_byte;                                     /* HAL 接收中断的落点 */
+
+void USART1_IRQHandler(void)                              /* 调试串口的接收中断入口 */
+{
+	HAL_UART_IRQHandler(&huart1);
+}
 
 void ota_uart_rx_isr(uint8_t b)                            /* 由 HAL 回调调用 */
 {
@@ -29,6 +35,10 @@ void ota_uart_rx_isr(uint8_t b)                            /* 由 HAL 回调调�
 	{
 		s_rx[s_rx_head] = b;
 		s_rx_head = next;
+	}
+	else
+	{
+		s_rx_drop++;                                       /* 记下来，收包结束时报出来 */
 	}
 }
 
@@ -128,6 +138,47 @@ int ota_apply(void)
 
 	target = (ota_running_slot() == OTA_SLOT_A) ? OTA_SLOT_B : OTA_SLOT_A;
 	addr   = ota_slot_addr(target);
+
+	/* 0. 先看包头像不像个能跑的镜像：栈顶要在 SRAM，复位向量要落在目标槽里。
+	 * 传一半、传错槽的包在这里就被挡住，不会把目标槽擦成砖 */
+	{
+		uint8_t v[8];
+		uint32_t sp, pc;
+		uint8_t i;
+
+		w25q_read_blk(OTA_STAGE_ADDR, v, 8);
+		sp = (uint32_t)v[0] | ((uint32_t)v[1] << 8) | ((uint32_t)v[2] << 16) | ((uint32_t)v[3] << 24);
+		pc = (uint32_t)v[4] | ((uint32_t)v[5] << 8) | ((uint32_t)v[6] << 16) | ((uint32_t)v[7] << 24);
+
+		printf("[OTA] pkg sp=0x%08X pc=0x%08X -> slot=%s\r\n",
+		       sp, pc, (target == OTA_SLOT_A) ? "A" : "B");
+
+		if ((sp & 0xFFF00000U) != 0x20000000U)
+		{
+			printf("[OTA] bad package: stack pointer not in SRAM, refuse\r\n");
+			return -2;
+		}
+
+		if ((pc < addr) || (pc >= (addr + OTA_FW_SIZE)))
+		{
+			printf("[OTA] bad package: reset vector not in target slot, refuse\r\n");
+			return -3;
+		}
+
+		for (i = 0; i < 8; i++)
+		{
+			if (v[i] != 0xFF)
+			{
+				break;
+			}
+		}
+
+		if (i == 8)
+		{
+			printf("[OTA] bad package: empty, refuse\r\n");
+			return -3;
+		}
+	}
 
 	printf("[OTA] apply: slot=%s -> slot=%s, %u KB\r\n",
 	       (ota_running_slot() == OTA_SLOT_A) ? "A" : "B",
@@ -229,6 +280,8 @@ static int ota_recv_package(void)
 	uint32_t off = 0;
 	uint32_t total = 0;
 	uint32_t last;
+	uint32_t crc = 0xFFFFFFFFU;
+	uint32_t drop0;
 	uint8_t ch;
 
 	printf("[OTA] erase stage area...\r\n");
@@ -242,6 +295,7 @@ static int ota_recv_package(void)
 
 	off   = 0;
 	last  = HAL_GetTick();
+	drop0 = s_rx_drop;
 
 	for (;;)
 	{
@@ -249,6 +303,7 @@ static int ota_recv_package(void)
 		{
 			buf[n++] = ch;
 			total++;
+			crc = crc32_update(crc, &ch, 1);
 			last = HAL_GetTick();
 
 			if (n == OTA_CHUNK)                            /* 攒够一页就落盘 */
@@ -263,7 +318,7 @@ static int ota_recv_package(void)
 				}
 			}
 		}
-		else if ((total > 0) && ((HAL_GetTick() - last) > 2000))
+		else if ((total > 0) && ((HAL_GetTick() - last) > 5000))
 		{
 			break;                                         /* 静默 2 秒，认为传完了 */
 		}
@@ -276,8 +331,8 @@ static int ota_recv_package(void)
 		off += OTA_CHUNK;
 	}
 
-	printf("[OTA] recv %lu bytes, %lu KB into W25Q\r\n",
-	       (unsigned long)total, (unsigned long)((off + 1023) / 1024));
+	printf("[OTA] recv %lu bytes, crc=0x%08X, dropped=%lu\r\n",
+	       (unsigned long)total, ~crc, (unsigned long)(s_rx_drop - drop0));
 
 	return (int)total;
 }
@@ -362,6 +417,8 @@ static void vOtaTask(void *pvParameters)
 
 void ota_task_start(void)
 {
+	HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);                /* 优先级要比 configMAX_SYSCALL 高 */
+	HAL_NVIC_EnableIRQ(USART1_IRQn);                        /* CubeMX 里 USART1 只开了发送，NVIC 得自己开 */
 	HAL_UART_Receive_IT(&huart1, &g_ota_rx_byte, 1);        /* 打开调试串口的接收中断 */
 
 	if (xTaskCreate(vOtaTask, "OTA", 512, NULL, 2, NULL) != pdPASS)
