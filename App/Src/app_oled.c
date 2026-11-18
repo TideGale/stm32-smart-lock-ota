@@ -4,6 +4,7 @@
 #include "lock.h"
 #include "app_pass.h"
 #include "app_fp.h"
+#include "esp8266.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include <stdio.h>
@@ -97,6 +98,15 @@ static void vOledTask(void *pvParameters)
 		oled_fp_line(cur[3], sizeof(cur[3]));
 
 		snprintf(cur[4], sizeof(cur[4]), "1-4 pass 1234#");
+
+		/* 5. 网络状态 */
+		switch (g_esp_state)
+		{
+			case ESP_ST_MQTT: snprintf(cur[4], sizeof(cur[4]), "NET:mqtt ok"); break;
+			case ESP_ST_WIFI: snprintf(cur[4], sizeof(cur[4]), "NET:wifi only"); break;
+			case ESP_ST_AT:   snprintf(cur[4], sizeof(cur[4]), "NET:module ok"); break;
+			default:          snprintf(cur[4], sizeof(cur[4]), "NET:off"); break;
+		}
 
 		/* 2. 只重画和刷新内容变了的那一页，I2C 流量大幅降低 */
 		for (i = 0; i < LINE_NUM; i++)

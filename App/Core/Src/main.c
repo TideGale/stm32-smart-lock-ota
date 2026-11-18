@@ -32,6 +32,8 @@
 #include "lock.h"
 #include "app_fp.h"
 #include "app_pass.h"
+#include "esp8266.h"
+#include "ota.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -264,6 +266,9 @@ int main(void)
 	lock_start();                                                // 建锁体任务
 	app_fp_start();                                              // 建指纹任务
 	app_pass_start();                                            // 建密码任务
+	esp_start();                                                 // 建 WiFi 任务
+	ota_task_start();                                            // 建 OTA 命令任务（串口 P / A）
+	printf("[App] heap free=%u B\r\n", (unsigned)xPortGetFreeHeapSize());
 	vTaskStartScheduler();                                       // 启动调度器，正常不返回
   /* USER CODE END 2 */
 
