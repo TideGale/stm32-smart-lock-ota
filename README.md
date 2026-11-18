@@ -93,10 +93,34 @@
 - [ ] 三次失败锁定状态机
 
 ### 阶段四：OTA（核心）
-- [ ] Bootloader：元数据读写 + CRC 校验 + 跳转
-- [ ] App：升级模块（写另一分区 + 切标记）
-- [ ] 试启动 + 三次失败回滚
-- [ ] 升级包传输（串口 / ESP8266）
+- [x] Bootloader：元数据读写 + CRC 校验 + 跳转
+- [x] App：升级模块（读暂存区 → 写另一分区 → 校验 → 切标记）
+- [x] 试启动 + 三次失败回滚（坏包实验实测）
+- [x] 升级包传输：串口收包 → W25Q（ESP8266 下载留给 2.0）
+
+---
+
+## 怎么升级（当前阶段）
+
+两个 Keil 工程共用同一份源码，只是链接地址不同：
+
+| 工程 | IROM1 | 产物 | 烧到 |
+|---|---|---|---|
+| `App/MDK-ARM/App.uvprojx` | 0x08004000 | `AppA.bin` | A 槽 |
+| `App/MDK-ARM/AppB.uvprojx` | 0x0801C000 | `AppB.bin` | B 槽 |
+
+```bash
+# 编译 + 导出 bin（fromelf 在 Keil 的 ARMCC 目录下）
+UV4.exe -b App/MDK-ARM/App.uvprojx  -j0 -o App/MDK-ARM/App.log
+UV4.exe -b App/MDK-ARM/AppB.uvprojx -j0 -o App/MDK-ARM/AppB.log
+fromelf.exe --bin -o 门锁OTA升级包/AppA.bin App/MDK-ARM/App/App.axf
+fromelf.exe --bin -o 门锁OTA升级包/AppB.bin App/MDK-ARM/AppB/AppB.axf
+
+# 发升级包（apply = 发完自动升级并复位）
+python Tools/send_fw.py COM4 门锁OTA升级包/AppB.bin apply
+```
+
+板子侧的串口命令：`D` 收包、`A` 应用并复位、`P` 查询当前槽、`R`/`B` 强制切槽（调试用）。
 
 ---
 
@@ -108,7 +132,7 @@
 | 阶段一 基础（CubeMX、时钟、串口） | ✅ App 点灯，Bootloader 串口输出正常 |
 | 阶段二 外设 | ✅ OLED、4×4 键盘、AS608 指纹、ESP8266 远程开锁已完成；W25Q128 日志未开始 |
 | 阶段三 RTOS | ✅ 五个任务在跑（显示 / 键盘 / 锁体 / 指纹 / 网络），键盘用队列、锁体用互斥量 |
-| 阶段四 OTA | 🔄 Bootloader 侧全部完成；App 侧升级流程代码已写完，A→B→A 闭环待实测 |
+| 阶段四 OTA | ✅ 分区管理、整槽 CRC、串口收包、A→B→A 双镜像闭环、试启动回滚全部实测通过 |
 
 ---
 
@@ -132,6 +156,9 @@
 | `test-flash-selftest` | 擦写 8KB 到 B 分区并逐字比对 | 2048 个字 0 错误，A 分区 CRC 前后一致 |
 | `test-w25q-id` | 通过 SPI2 读 W25Q128 的 JEDEC ID | 返回 `0xEF4018`，链路正常 |
 | `test-w25q-rw` | 擦一个 4KB 扇区、写 256 字节、读回比对 | `bad 0`，擦写读链路正常 |
+| `test-ota-dual` | B 槽装按 B 地址链接的镜像 | `[App] main=0x0801F84D VTOR=0x0801C000`，确实从 B 区执行 |
+| `test-ota-loop` | 串口发 30400 字节升级包，A→B→A 走两遍 | 两次 `dropped=0`、CRC 与本地文件一致、回程不卡死 |
+| `test-rollback` | 坏包（复位向量指到 0xFF 区）连续三次启动失败 | `boot_count` 1→2→3 后打出 `rollback 1 -> 0`，旧槽正常跑起来 |
 | `test-ota-prepare` | 把 A 区固件复制到 W25Q128 暂存区 | `bad 0`，升级包准备就绪 |
 | `test-ota-corrupt` | 故意改坏升级包的 CRC | Bootloader 拒绝启动坏槽并切回 |
 
