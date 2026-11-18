@@ -99,3 +99,59 @@ void w25q_erase_sector(uint32_t addr)                       // 擦掉 addr 所�
 	W25Q_CS_HIGH();                                         // 拉高，芯片开始真正擦
 	w25q_wait();                                            // 等擦完，一个扇区约 45ms
 }
+
+/* 整块读：一次事务搬 len 个字节，比逐字节少两个数量级的事务，出错机会也少得多 */
+void w25q_read_blk(uint32_t addr, uint8_t *buf, uint16_t len)   // len 不超过 256
+{
+	static uint8_t s_dummy[256];                            // 读的时候发什么都行，MISO 会把数据盖回来
+	uint8_t try;                                            // 重试计数
+	uint16_t i;
+
+	for (i = 0; i < len; i++)
+	{
+		s_dummy[i] = 0xFF;                                  // 只当是时钟
+	}
+
+	for (try = 0; try < 3; try++)                           // SPI 偶发失败就整块重来
+	{
+		W25Q_CS_LOW();
+		w25q_xfer(W25Q_CMD_READ);
+		w25q_xfer(addr >> 16);
+		w25q_xfer(addr >> 8);
+		w25q_xfer(addr);
+
+		if (HAL_SPI_TransmitReceive(&hspi2, s_dummy, buf, len, 500) == HAL_OK)
+		{
+			W25Q_CS_HIGH();
+			return;
+		}
+
+		W25Q_CS_HIGH();
+	}
+}
+
+/* 整块写：一页 256 字节一次推进去 */
+void w25q_write_blk(uint32_t addr, const uint8_t *buf, uint16_t len)   // len 不超过 256
+{
+	uint8_t try;
+
+	for (try = 0; try < 3; try++)
+	{
+		w25q_wren();
+		W25Q_CS_LOW();
+		w25q_xfer(W25Q_CMD_PP);
+		w25q_xfer(addr >> 16);
+		w25q_xfer(addr >> 8);
+		w25q_xfer(addr);
+
+		if (HAL_SPI_Transmit(&hspi2, (uint8_t *)buf, len, 500) == HAL_OK)
+		{
+			W25Q_CS_HIGH();
+			w25q_wait();
+			return;
+		}
+
+		W25Q_CS_HIGH();
+		w25q_wait();
+	}
+}

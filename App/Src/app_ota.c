@@ -35,17 +35,38 @@ int ota_prepare_from_running(void)
 	for (off = 0; off < OTA_FW_SIZE; off += OTA_CHUNK)
 	{
 		memcpy(s_buf, (const void *)(src + off), OTA_CHUNK);   /* 内部 Flash 可直接当内存读 */
-		w25q_write(OTA_STAGE_ADDR + off, s_buf, OTA_CHUNK);
+		w25q_write_blk(OTA_STAGE_ADDR + off, s_buf, OTA_CHUNK);
 	}
 
-	/* 回读比对，确认搬运无误 */
+	/* 回读比对，确认搬运无误；偶尔读错就重读，三次都对不上才算真失败 */
 	for (off = 0; off < OTA_FW_SIZE; off += OTA_CHUNK)
 	{
-		w25q_read(OTA_STAGE_ADDR + off, s_buf, OTA_CHUNK);
+		uint8_t retry;
 
-		if (memcmp(s_buf, (const void *)(src + off), OTA_CHUNK) != 0)
+		for (retry = 0; retry < 3; retry++)
 		{
-			printf("[OTA] prepare verify fail at %lu\r\n", (unsigned long)off);
+			w25q_read_blk(OTA_STAGE_ADDR + off, s_buf, OTA_CHUNK);
+
+			if (memcmp(s_buf, (const void *)(src + off), OTA_CHUNK) == 0)
+			{
+				break;
+			}
+		}
+
+		if (retry == 3)                                          /* 三次都错，说明这一块真的没写进去 */
+		{
+			uint16_t k;
+
+			for (k = 0; k < OTA_CHUNK; k++)                      /* 找第一个不一样的字节 */
+			{
+				if (s_buf[k] != ((const uint8_t *)(src + off))[k])
+				{
+					break;
+				}
+			}
+
+			printf("[OTA] prepare verify fail at %lu+%u: w25q=0x%02X flash=0x%02X\r\n",
+			       (unsigned long)off, k, s_buf[k], ((const uint8_t *)(src + off))[k]);
 			return -1;
 		}
 	}
@@ -99,7 +120,7 @@ int ota_apply(void)
 	/* 2. 从 W25Q 搬过去，按字写 */
 	for (off = 0; off < OTA_FW_SIZE; off += OTA_CHUNK)
 	{
-		w25q_read(OTA_STAGE_ADDR + off, s_buf, OTA_CHUNK);
+		w25q_read_blk(OTA_STAGE_ADDR + off, s_buf, OTA_CHUNK);
 
 		for (uint16_t i = 0; i < OTA_CHUNK; i += 4)
 		{
@@ -129,7 +150,24 @@ int ota_apply(void)
 
 		if (crc != stage_crc)
 		{
-			printf("[OTA] crc mismatch, abort\r\n");
+			uint32_t k, bad = 0;
+
+			for (k = 0; k < OTA_FW_SIZE; k++)                    /* 找出第一个不一样的字节，判断是零星坏还是一片坏 */
+			{
+				if (*(const uint8_t *)(addr + k) != *(const uint8_t *)(src_addr + k))
+				{
+					if (bad < 8)                                 /* 最多打 8 个，够判断了 */
+					{
+						printf("[OTA] diff @%lu new=0x%02X old=0x%02X\r\n",
+						       (unsigned long)k,
+						       *(const uint8_t *)(addr + k),
+						       *(const uint8_t *)(src_addr + k));
+						bad++;
+					}
+				}
+			}
+
+			printf("[OTA] crc mismatch, %lu bytes differ, abort\r\n", (unsigned long)bad);
 			return -4;
 		}
 	}
@@ -171,6 +209,52 @@ static void vOtaTask(void *pvParameters)
 			{
 				ota_prepare_from_running();
 			}
+			else if (ch == 'R' || ch == 'r')                 /* 调试用：把活动槽强制设回 A，方便反复做 A->B->A */
+			{
+				ota_meta_t m;
+
+				ota_meta_load(&m);
+
+				if (!ota_meta_is_valid(&m))
+				{
+					ota_meta_set_default(&m);
+				}
+
+				m.crc_a       = crc32_flash(OTA_SLOT_A_ADDR, OTA_FW_SIZE);
+				m.crc_b       = crc32_flash(OTA_SLOT_B_ADDR, OTA_FW_SIZE);
+				m.active_slot = OTA_SLOT_A;
+				m.trial       = 0;
+				m.boot_count  = 0;
+				m.ota_req     = 0;
+				ota_meta_save(&m);
+
+				printf("[OTA] meta reset: slot=A crc_a=0x%08X crc_b=0x%08X\r\n", m.crc_a, m.crc_b);
+				vTaskDelay(pdMS_TO_TICKS(200));
+				NVIC_SystemReset();
+			}
+			else if (ch == 'B' || ch == 'b')                 /* 调试用：活动槽切到 B，验证 B 槽镜像能独立运行 */
+			{
+				ota_meta_t m;
+
+				ota_meta_load(&m);
+
+				if (!ota_meta_is_valid(&m))
+				{
+					ota_meta_set_default(&m);
+				}
+
+				m.crc_a       = crc32_flash(OTA_SLOT_A_ADDR, OTA_FW_SIZE);
+				m.crc_b       = crc32_flash(OTA_SLOT_B_ADDR, OTA_FW_SIZE);
+				m.active_slot = OTA_SLOT_B;
+				m.trial       = 1;
+				m.boot_count  = 0;
+				m.ota_req     = 0;
+				ota_meta_save(&m);
+
+				printf("[OTA] meta set: slot=B crc_a=0x%08X crc_b=0x%08X\r\n", m.crc_a, m.crc_b);
+				vTaskDelay(pdMS_TO_TICKS(200));
+				NVIC_SystemReset();
+			}
 			else if (ch == 'A' || ch == 'a')
 			{
 				if (ota_apply() == 0)
@@ -193,5 +277,5 @@ void ota_task_start(void)
 		return;
 	}
 
-	printf("[OTA] cmd: 'P' prepare, 'A' apply+reboot\r\n");
+	printf("[OTA] cmd: 'P' prepare, 'A' apply+reboot, 'R' slotA, 'B' slotB\r\n");
 }
