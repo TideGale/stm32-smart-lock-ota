@@ -130,9 +130,34 @@ python Tools/send_fw.py COM4 门锁OTA升级包/AppB.bin apply
 |---|---|
 | 目录搭建 | ✅ 2026-11-04 |
 | 阶段一 基础（CubeMX、时钟、串口） | ✅ App 点灯，Bootloader 串口输出正常 |
-| 阶段二 外设 | ✅ OLED、4×4 键盘、AS608 指纹、ESP8266 远程开锁已完成；W25Q128 日志未开始 |
+| 阶段二 外设 | ✅ OLED、4×4 键盘、AS608 指纹、ESP8266 远程开锁；W25Q128 目前只用于 OTA 暂存区，日志功能列入 2.0 |
 | 阶段三 RTOS | ✅ 五个任务在跑（显示 / 键盘 / 锁体 / 指纹 / 网络），键盘用队列、锁体用互斥量 |
 | 阶段四 OTA | ✅ 分区管理、整槽 CRC、串口收包、A→B→A 双镜像闭环、试启动回滚全部实测通过 |
+
+---
+
+## 1.0 的验收标准
+
+1.0 只有三条硬指标，全部实测通过才算这个版本收尾：
+
+| # | 验收项 | 怎么验 | 状态 |
+|---|---|---|---|
+| 1 | 双分区 OTA 闭环 | A 槽发 `AppB.bin` 切到 B，再从 B 发 `AppA.bin` 切回 A，两次都 `verify ok` 且复位后 `VTOR`/`main` 落在对应槽 | ✅ `test-ota-loop` |
+| 2 | 试启动失败回滚 | 坏包（复位向量指到 0xFF 区）连续三次启动失败后 `rollback 1 -> 0`，旧槽正常跑起来 | ✅ `test-rollback` |
+| 3 | MQTT 远程开锁 | PC 侧订阅 `lock/state` 并往 `lock/cmd` 发 `open`，门锁开锁并回执 `lock/state=open` | ✅ `test-mqtt` |
+
+复验命令：
+
+```bash
+# 1. OTA 闭环（会真的把板子刷一遍并复位）
+python Tools/send_fw.py COM4 门锁OTA升级包/AppB.bin apply
+python Tools/send_fw.py COM4 门锁OTA升级包/AppA.bin apply
+
+# 3. MQTT 链路（PC 侧独立验证，不依赖串口助手）
+python Tools/mqtt_check.py broker.hivemq.com open
+```
+
+MQTT 那条要求板子已经连上 2.4G 热点；串口日志里出现 `[ESP] mqtt ready @ broker.hivemq.com` 才算连上。
 
 ---
 
