@@ -53,3 +53,5 @@ desktop.ini
 # 编译日志与 B 槽工程的输出目录
 *.log
 AppB/
+Tools/last_send.log
+com_capture.txt

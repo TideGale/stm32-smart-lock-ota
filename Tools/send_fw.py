@@ -30,6 +30,7 @@ def main():
 
     port = sys.argv[1]
     path = sys.argv[2]
+    do_apply = len(sys.argv) > 3 and sys.argv[3].lower() in ("apply", "-a", "--apply")
 
     with open(path, "rb") as f:
         data = f.read()
@@ -80,7 +81,7 @@ def main():
 
     time.sleep(0.3)
 
-    print("[PC] 开始发送 %d 字节 ..." % len(data)]
+    print("[PC] 开始发送 %d 字节 ..." % len(data))
     t0 = time.time()
     for i in range(0, len(data), CHUNK):
         ser.write(data[i:i + CHUNK])
@@ -88,8 +89,6 @@ def main():
 
     print("[PC] 发完，用时 %.2f 秒，等板子校验 ..." % (time.time() - t0))
     time.sleep(IDLE_WAIT)
-
-    ser.close()
 
     ok = True
     if seen["recv"] is None:
@@ -104,9 +103,16 @@ def main():
             print("[PC] CRC 对不上，包是坏的，别发 A")
             ok = False
 
-    if ok:
+    if ok and do_apply:
+        print("\n[PC] 包完整，发 A 应用升级（板子会自己复位）...")
+        ser.write(b"A")
+        t0 = time.time()
+        while time.time() - t0 < 30:
+            ser.read(256)
+    elif ok:
         print("[PC] 包完整，可以发 A 应用升级")
 
+    ser.close()
     return 0 if ok else 1
 
 
