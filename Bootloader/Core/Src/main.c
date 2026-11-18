@@ -38,7 +38,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define OTA_FW_SIZE  16384U                                     // 一次校验的固件长度，和 App 的 FW_SIZE 一致
+#define OTA_FW_SIZE  0x18000U                                  // 一次校验整个槽 96KB，必须和 App 的 OTA_FW_SIZE 一致
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/

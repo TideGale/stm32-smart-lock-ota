@@ -75,97 +75,6 @@ static void MX_I2C1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-#define FW_SIZE  16384                                      // 升级包大小，和 Bootloader 的 COPY_SIZE 一致
-
-static int ota_copy_to_b(void)									// 从 W25Q 读升级包写进 B 区，0 成功
-{
-	static uint8_t buf[256];                                // 一页缓冲
-	uint32_t off, i, bad = 0, err = 0;                      // 偏移、下标、错误计数、擦除错误页号
-	FLASH_EraseInitTypeDef e;                               // 擦除参数结构体
-
-	printf("[App] erase B...\r\n");                         // 开始擦 B 区
-
-	HAL_FLASH_Unlock();                                     // 解锁 Flash 控制寄存器
-	__HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_PGERR | FLASH_FLAG_WRPERR);  // 清残留错误标志
-
-	e.TypeErase   = FLASH_TYPEERASE_PAGES;                  // 按页擦
-	e.PageAddress = OTA_SLOT_B_ADDR;                        // B 区起始地址 0x0801C000
-	e.NbPages     = FW_SIZE / 2048;                         // 16KB / 2KB = 8 页
-
-	if (HAL_FLASHEx_Erase(&e, &err) != HAL_OK)              // 擦失败就退出
-	{
-		HAL_FLASH_Lock();                                   // 锁回去
-		printf("[App] erase fail, page err = %u\r\n", err);  // 报错
-		return -1;                                          // -1 表示擦除失败
-	}
-
-	printf("[App] copy W25Q -> B...\r\n");                  // 开始搬
-
-	for (off = 0; off < FW_SIZE; off += 256)                // 16KB / 256 = 64 页
-	{
-		w25q_read(off, buf, 256);                           // 从 W25Q 读一页
-
-		for (i = 0; i < 256; i += 4)                        // 一页拆成 64 个字
-		{
-			uint32_t w = (uint32_t)buf[i]                   // 小端拼接：低字节在前
-				| ((uint32_t)buf[i + 1] << 8)               // 第 2 个字节左移 8 位
-				| ((uint32_t)buf[i + 2] << 16)              // 第 3 个字节左移 16 位
-				| ((uint32_t)buf[i + 3] << 24);             // 第 4 个字节左移 24 位
-
-			if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD,   // 一次写 32 位
-					OTA_SLOT_B_ADDR + off + i,              // 写到 B 区的对应位置
-					w) != HAL_OK)                           // 要写的内容
-			{
-				HAL_FLASH_Lock();                           // 锁回去
-				printf("[App] write fail at %u\r\n", off + i);  // 报错
-				return -2;                                  // -2 表示写入失败
-			}
-		}
-	}
-
-	HAL_FLASH_Lock();                                       // 写完上锁
-
-	printf("[App] verify...\r\n");                          // 开始回读比对
-
-	for (off = 0; off < FW_SIZE; off += 256)                // 再走一遍
-	{
-		w25q_read(off, buf, 256);                           // 从 W25Q 再读一页
-		for (i = 0; i < 256; i++)                           // 逐字节比
-			if (buf[i] != *(volatile uint8_t *)(OTA_SLOT_B_ADDR + off + i))	// 和 B 区的对应字节比
-				bad++;                                      // 不一致就加一
-	}
-
-printf("[App] copy to B: %u bytes, bad %u\r\n", FW_SIZE, bad);  // 报结果
-
-	if (bad != 0)                                                   // 比对发现有字节不一样
-	{
-		printf("[App] B corrupt, meta not saved\r\n");              // B 区不可信
-		return -3;                                                  // 直接退出，元数据一个字不动
-	}
-
-	ota_meta_t meta;                                                // 用来装当前元数据
-	ota_meta_load(&meta);                                           // 从 Flash 最后一页读出来
-
-	if (!ota_meta_is_valid(&meta))                                  // 没初始化过，或者被写坏了
-	{
-		ota_meta_set_default(&meta);                                // 先填默认值，后面再覆盖字段
-	}
-
-	meta.crc_a       = crc32_flash(OTA_SLOT_A_ADDR, FW_SIZE);       // A 区这 16KB 的 CRC
-	meta.crc_b       = crc32_flash(OTA_SLOT_B_ADDR, FW_SIZE);       // B 区这 16KB 的 CRC
-	meta.trial       = 1;                                           // 标记成试启动，等 App 自检后再清
-	meta.boot_count  = 0;                                           // 试启动失败次数从 0 开始
-	meta.active_slot = OTA_SLOT_B;                                  // 下次上电启动 B 区
-	meta.ota_req     = 0;                                           // 请求已经处理完，清掉
-	ota_meta_save(&meta);                                           // 写回 Flash，save 里会重算 crc_meta
-
-	printf("[App] meta: slot=%d trial=%d cnt=%d crc_a=0x%08X crc_b=0x%08X\r\n",  // 打印确认
-		meta.active_slot, meta.trial, meta.boot_count,              // 槽号、试启动、失败次数
-		meta.crc_a, meta.crc_b);                                    // 两个槽的 CRC
-
-	return 0;                                                       // 成功
-}
-
 void vApplicationMallocFailedHook(void)                             // 堆不够时进来
 {
 	taskDISABLE_INTERRUPTS();                                       // 关中断，停在原地
@@ -227,23 +136,10 @@ int main(void)
   (uint32_t)&main, SCB->VTOR);                                // 和向量表基址
 
 	ota_meta_t meta;                                                // 当前元数据
-	uint8_t running_a;                                              // 1 = 现在跑在 A 区
-	uint8_t b_active;                                               // 1 = B 是当前活动槽
 
 	ota_meta_load(&meta);                                           // 从 Flash 读元数据
-	running_a = (SCB->VTOR == OTA_SLOT_A_ADDR);                     // 向量表在 A 就说明跑在 A
-	b_active  = ota_meta_is_valid(&meta)                            // 元数据可信
-		&& (meta.active_slot == OTA_SLOT_B);                        // 而且目标是 B
-
-	if (running_a && !b_active && meta.ota_req == 1)                // 跑在 A、B 不是目标、而且有升级请求
-	{
-		ota_copy_to_b();                                            // 才允许写 B 区
-	}
-	else                                                            // 其它情况
-	{
-		printf("[App] skip ota, vtor=0x%08X slot=%d req=%d\r\n",    // 不动 Flash
-			SCB->VTOR, meta.active_slot, meta.ota_req);             // 打出来看原因
-	}
+	printf("[App] boot: vtor=0x%08X slot=%d trial=%d cnt=%d\r\n",   // 从哪个槽起来的
+		SCB->VTOR, meta.active_slot, meta.trial, meta.boot_count);  // 槽号、试启动、失败次数
 
 	// ===== 试启动确认：能跑到这里，说明固件活到了 main =====
 	if (ota_meta_is_valid(&meta) && meta.trial == 1)                // 这次是试启动
