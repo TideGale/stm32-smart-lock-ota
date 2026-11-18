@@ -15,6 +15,7 @@ void lock_open(uint32_t ms);     // 开锁，ms 后自动关
 void lock_close(void);
 uint8_t lock_is_open(void);
 void lock_request(uint8_t src);  // 带互斥的开锁入口，指纹/密码/远程都走这里
+void lock_selftest(void);        // 接线自检：继电器吸合 1 秒，不经过密码/指纹
 
 uint8_t  lock_get_state(void);      // LOCK_STATE_CLOSED / OPEN
 uint8_t  lock_get_last_src(void);   // 最近一次开锁来源

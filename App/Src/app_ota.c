@@ -1,4 +1,5 @@
 #include "ota.h"
+#include "lock.h"
 #include "w25q.h"
 #include "crc32.h"
 #include "FreeRTOS.h"
@@ -397,6 +398,10 @@ static void vOtaTask(void *pvParameters)
 				vTaskDelay(pdMS_TO_TICKS(200));
 				NVIC_SystemReset();
 			}
+			else if (ch == 'L' || ch == 'l')                 /* 接线自检：继电器吸合 1 秒 */
+			{
+				lock_selftest();
+			}
 			else if (ch == 'D' || ch == 'd')
 			{
 				ota_recv_package();
@@ -427,5 +432,5 @@ void ota_task_start(void)
 		return;
 	}
 
-	printf("[OTA] cmd: 'P' prepare, 'D' recv bin, 'A' apply+reboot, 'R' slotA, 'B' slotB\r\n");
+	printf("[OTA] cmd: 'P' prepare, 'D' recv bin, 'A' apply+reboot, 'R' slotA, 'B' slotB, 'L' lock test\r\n");
 }
