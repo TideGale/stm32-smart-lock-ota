@@ -27,6 +27,9 @@ static UART_HandleTypeDef s_uart;
 
 /* 中断收 + 环形缓冲：轮询收会被 FreeRTOS 的 1ms tick 打断，
  * 115200 下 1 字节只要 87us，中断一来就丢字节（AT version 被截断就是这原因） */
+/* 接线排查用的打印（探测回环、打印原始字节），平时关掉，否则日志会被刷屏 */
+#define ESP_LINK_DEBUG   0
+
 #define ESP_RX_SIZE   512
 
 static volatile uint8_t  s_rx[ESP_RX_SIZE];
@@ -172,10 +175,15 @@ static uint8_t esp_at(const char *cmd, uint32_t timeout_ms)
 		return 0;
 	}
 
-	esp_print_raw(buf, total);
+	if (strstr(buf, "ERROR") != NULL)
+	{
+		esp_print_raw(buf, total);               /* 出错才把原始应答打出来 */
+	}
+
 	return (strstr(buf, "OK") != NULL) ? 1 : 0;
 }
 
+#if ESP_LINK_DEBUG
 /* 只收不印发，把收到的字节按十六进制打出来，用来判断线上到底有没有数据 */
 static uint16_t esp_sniff(const char *tag, uint32_t ms)
 {
@@ -229,6 +237,7 @@ static void esp_probe(void)
 		printf("[ESP] nothing back\r\n");
 	}
 }
+#endif  /* ESP_LINK_DEBUG */
 
 /* ================= 下行解析 =================
  * TCP 透传时模块报 +IPD,<len>:<数据>，数据就是一个完整的 MQTT 报文，
@@ -670,6 +679,7 @@ static void vEspTask(void *pvParameters)
 
 	printf("[ESP] start, UART3 115200\r\n");
 
+#if ESP_LINK_DEBUG
 	/* 先看线上有没有字节：ESP 上电会吐启动信息，哪怕波特率不对也该看到乱码 */
 	if (esp_sniff("boot", 800) == 0)
 	{
@@ -677,6 +687,7 @@ static void vEspTask(void *pvParameters)
 	}
 
 	esp_probe();                                 // 先判别是真模块还是自环
+#endif
 
 	for (tries = 0; tries < 3; tries++)          // AT 多发几次，模块可能还在启动
 	{

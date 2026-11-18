@@ -22,11 +22,11 @@ static void vFpTask(void *pvParameters)
 	for (;;)
 	{
 		/* 1. 先确保模块通，不通就每 2 秒重试，给模块断电重上的机会 */
-		as608_selftest();                        // 回环自测，接线排查用
 		st = as608_init();
 
 		if (st != AS608_OK)
 		{
+			as608_selftest();                    /* only when init fails: real module does not echo */
 			printf("[FP] no module, retry in 2s\r\n");
 			g_fp_state = FP_ST_OFFLINE;
 			vTaskDelay(pdMS_TO_TICKS(2000));
